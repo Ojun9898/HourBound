@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using UnityEngine;
-using UnityEngine.InputSystem;
+using Hourbound.Presentation.Player.Motion;
+using Unity.VisualScripting;
 
 namespace Hourbound.Presentation.Player
 {
@@ -13,122 +15,85 @@ namespace Hourbound.Presentation.Player
         [Header("대시 설정")]
         [Min(0f)] [SerializeField] private float dashDistance = 2.0f;
         [Min(0.01f)] [SerializeField] private float dashDuration = 0.12f;
-        
+
         [Header("무적/퍼펙트윈도우")]
         [Min(0f)] [SerializeField] private float iframeDuration = 0.25f;
         [Min(0f)] [SerializeField] private float perfectWindowDuration = 0.12f;
         
-        [Header("입력(디버그 용)")]
-        [SerializeField] private Key dodgeKey = Key.LeftShift;
-        
-        [Header("옵션")]
-        [SerializeField] private bool useRigidbody2D = true;
+        [Header("모터")]
+        [SerializeField] private MonoBehaviour motorBehaviour;
         
         public event Action DodgeStarted;
+        public event Action DodgeEnded;
         public event Action PerfectWindowStarted;
+        public event Action PerfectWindowEnded;
         
-        public bool IsInvincible { get; private set; }
-        public bool IsPerfectWindow { get; private set; }
+        public bool IsInvincible => UnityEngine.Time.realtimeSinceStartup < _invincibleUntilRealtime;
+        public bool IsPerfectWindow => UnityEngine.Time.realtimeSinceStartup < _perfectUntilRealtime;
         
-        private Rigidbody2D _rb;
+        private IDodgeMotor _motor;
         private float _invincibleUntilRealtime;
         private float _perfectUntilRealtime;
-
-#if UNITY_EDITOR
-        private InputAction _dodgeAction;
-#endif
+        
+        private bool _wasPerfect; // ended 이벤트용
 
         private void Awake()
         {
-            if (useRigidbody2D)
-                _rb = GetComponent<Rigidbody2D>();
-
-#if UNITY_EDITOR
-            _dodgeAction = new InputAction("디버그_회피");
-            _dodgeAction.AddBinding($"<Keyboard>/{dodgeKey.ToString().ToLower()}");
-#endif
-        }
-
-        private void OnEnable()
-        {
-#if UNITY_EDITOR
-            if (_dodgeAction != null)
-            {
-                _dodgeAction.performed += OnDodge;
-                _dodgeAction.Enable();
-            }
-#endif
-        }
-
-        private void OnDisable()
-        {
-#if UNITY_EDITOR
-            if (_dodgeAction != null)
-            {
-                _dodgeAction.performed -= OnDodge;
-                _dodgeAction.Disable();
-            }
-#endif
+            _motor = motorBehaviour as IDodgeMotor;
+            if (_motor == null)
+                Debug.LogError("DodgeController : motorBehaviour에 IDodgeMotor 구현체를 할당해야 합니다.");
         }
 
         private void Update()
         {
-            // 타임스케일 영향을 받지 않도록 실시간 기준으로 처리
-            float now = UnityEngine.Time.realtimeSinceStartup;
-            IsInvincible = now < _invincibleUntilRealtime;
-            IsPerfectWindow = now < _perfectUntilRealtime;
+            // PerfectWindowEnded는 "이전 프레임 true -> 이번 프레임 false"에서만 발생
+            bool nowPerfect = IsPerfectWindow;
+            if (_wasPerfect && !nowPerfect)
+                PerfectWindowEnded?.Invoke();
+
+            _wasPerfect = nowPerfect;
         }
 
-#if UNITY_EDITOR
-        private void OnDodge(InputAction.CallbackContext ctx)
+        /// <summary>
+        /// 외부(입력/AI/테스트)에서 호출하는 대시 요청
+        /// moveInput : (x=좌우, y=전후)
+        /// </summary>
+        public void RequestDodge(Vector2 moveInput)
         {
-            StartDodge();
-        }
-#endif
-
-        private void StartDodge()
-        {
-            // 방향은 입력(WASD/방향키)에서 즉석으로 추출
-            // TODO : 추후 이동 입력 시스템과 연결
-            Vector2 dir = ReadMoveDirection();
+            if (_motor == null) return;
+            if (_motor.IsDodging) return;
+            
+            // 방향이 없으면 "전방"으로
+            Vector3 dir = new Vector3(moveInput.x, 0f, moveInput.y);
             if (dir.sqrMagnitude < 0.0001f)
-                dir = Vector2.up; // 입력이 없으면 임시로 뒤로 설정
+                dir = Vector3.forward;
             
             dir.Normalize();
             
-            // 이동(간단한 버전 : 즉시 이동)
-            Vector2 delta = dir * dashDistance;
-            if (useRigidbody2D && _rb != null)
-                _rb.MovePosition(_rb.position + delta);
-            else
-                transform.position += (Vector3)delta;
-            
-            DodgeStarted?.Invoke();
-            
-            // 무적/퍼펙트 윈도우 시작
+            // 타이머 먼저 세팅 (이벤트 구독자가 즉시 읽어도 true)ㅣ
             float now = UnityEngine.Time.realtimeSinceStartup;
             _invincibleUntilRealtime = now + iframeDuration;
             _perfectUntilRealtime = now + Mathf.Min(perfectWindowDuration, iframeDuration);
             
+            // 이벤트 발행
+            DodgeStarted?.Invoke();
             PerfectWindowStarted?.Invoke();
+            _wasPerfect = true;
             
-            Debug.Log($"회피 실행 : 무적 시간 = {iframeDuration:F2}s, 퍼펙트 닷지 = {perfectWindowDuration:F2}s", this);
+            // 이동 실행
+            _motor.Dodge(dir, dashDistance, dashDuration);
+            
+            // 대시 종료 이벤트가 끝났는지 폴링하는 간단한 방식으로 처리(필요하면 코루틴으로 더 깔끔하게)
+            StartCoroutine(CoWaitDodgeEnd());
         }
 
-        private Vector2 ReadMoveDirection()
+        private IEnumerator CoWaitDodgeEnd()
         {
-            var kb = Keyboard.current;
-            if (kb == null) return Vector2.zero;
+            // 모터 종료까지 대기
+            while (_motor != null && _motor.IsDodging)
+                yield return null;
             
-            float x = 0f;
-            float y = 0f;
-            
-            if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) x -= -1f;
-            if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) x += -1f;
-            if (kb.sKey.isPressed || kb.downArrowKey.isPressed) y -= -1f;
-            if (kb.wKey.isPressed || kb.upArrowKey.isPressed) y += -1f;
-            
-            return new Vector2(x, y);
+            DodgeEnded?.Invoke();
         }
     }
 }
