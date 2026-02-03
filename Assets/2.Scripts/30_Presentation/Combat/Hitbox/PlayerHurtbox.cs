@@ -2,12 +2,34 @@ using UnityEngine;
 
 namespace Hourbound.Presentation.Combat.Hitbox
 {
-    // 플레이어의 "피격 영역" 표시용 컴포넌트
-    // 실제 피격 처리(PlayerHitReceiver)는 다른 컴포넌트가 담당
     public sealed class PlayerHurtbox : MonoBehaviour
     {
-        // 필요하면 이후 부위 / 피격 배율 등을 확장 가능
+        [SerializeField] private PlayerHitReceiver receiver;
+        
+        [Header("Debug")]
+        [SerializeField] private bool logOnTrigger = true;
+
+        private void Reset()
+        {
+            receiver = GetComponentInParent<PlayerHitReceiver>();
+        }
+
+        private void Awake()
+        {
+            if (receiver == null)
+                receiver = GetComponentInParent<PlayerHitReceiver>();
+            
+            if (receiver == null)
+                Debug.LogError("PlayerHurtbox : PlayerHitReceiver를 찾지 못했습니다.", this);
+        }
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (logOnTrigger)
+                Debug.Log($"[HURTBOX] Hit by : {other.name} / layer = {other.gameObject.layer}", this);
+            
+            if (receiver == null) return;
+            receiver.ReceiveHit(other.gameObject);
+        }
     }
 }
-
-

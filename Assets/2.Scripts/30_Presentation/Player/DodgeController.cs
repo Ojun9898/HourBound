@@ -2,12 +2,11 @@ using System;
 using System.Collections;
 using UnityEngine;
 using Hourbound.Presentation.Player.Motion;
-using Unity.VisualScripting;
 
 namespace Hourbound.Presentation.Player
 {
     // 대시(회피) 컨트롤러
-    // - 입력(Shift)로 대시 실행
+    // - 입력(Space)로 대시 실행
     // - 일정 시간 무적(I-Frame) 부여
     // - 무적 구간 중 앞부분은 퍼펙트 윈도우로 취급
     public sealed class DodgeController : MonoBehaviour
