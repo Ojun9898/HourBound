@@ -4,7 +4,7 @@ using UnityEngine.InputSystem;
 using Hourbound.Domain.Time;
 using Hourbound.Presentation.Time;
 
-namespace HourBound.Presentation.Debugging
+namespace Hourbound.Presentation.Debugging
 {
     // 디버그용 런 재시작 컨트롤러
     // R 키를 누르면 시간 / 타임스케일을 초기화함.
@@ -81,7 +81,7 @@ namespace HourBound.Presentation.Debugging
             
             // 패배 처리로 멈춘 타임스케일 복구
             if (resetTimeScale)
-                Time.timeScale = 1f;
+                UnityEngine.Time.timeScale = 1f;
             
             // 최대치 / 현재치 초기화
             _time.SetMax(resetMaxTime, keepRatio: false, new TimeMaxChangedContext("디버그_재시작"));

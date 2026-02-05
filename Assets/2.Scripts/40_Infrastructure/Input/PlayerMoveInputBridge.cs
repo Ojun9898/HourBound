@@ -34,14 +34,11 @@ namespace Hourbound.Infrastructure.Input
             Vector2 v = ctx.ReadValue<Vector2>();
 
             if (gate != null && gate.IsBlocked(InputChannel.Gameplay))
-            {
-                movement.SetMoveInput(Vector2.zero);
-                if (cache != null) cache.Set(Vector2.zero);
-                return;
-            }
-            
-            movement.SetMoveInput(ctx.ReadValue<Vector2>());
+                v = Vector2.zero;
+
+            movement.SetMoveInput(v);
             if (cache != null) cache.Set(v);
         }
+
     }
 }

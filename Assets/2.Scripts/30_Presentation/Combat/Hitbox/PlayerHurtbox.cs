@@ -29,6 +29,10 @@ namespace Hourbound.Presentation.Combat.Hitbox
                 Debug.Log($"[HURTBOX] Hit by : {other.name} / layer = {other.gameObject.layer}", this);
             
             if (receiver == null) return;
+            
+            if (!other.TryGetComponent<AttackHitbox>(out _))
+                return;
+            
             receiver.ReceiveHit(other.gameObject);
         }
     }

@@ -1,7 +1,7 @@
 ﻿using System;
 using UnityEngine;
 
-namespace HourBound.Presentation.Camera
+namespace Hourbound.Presentation.Cameras
 {
     /// <summary>
     /// 쿼터뷰(Top-Down/Quarter) 팔로우 카메라
@@ -58,12 +58,12 @@ namespace HourBound.Presentation.Camera
 
         private void Update()
         {
-            if (!useLateUpdate) Tick(Time.deltaTime);
+            if (!useLateUpdate) Tick(UnityEngine.Time.deltaTime);
         }
 
         private void LateUpdate()
         {
-            if (useLateUpdate) Tick(Time.deltaTime);
+            if (useLateUpdate) Tick(UnityEngine.Time.deltaTime);
         }
 
         private void Tick(float dt)

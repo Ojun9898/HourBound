@@ -21,6 +21,7 @@ namespace Hourbound.Presentation.Time
         {
             // 도메인 객체 생성
             Time = new TimeResource(maxTime, startTime);
+            Debug.Log($"[TimeCreated] current={Time.Current} max={Time.Max}", this);
         }
     }
 }

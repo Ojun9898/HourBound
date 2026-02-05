@@ -17,7 +17,15 @@ namespace Hourbound.Presentation.Time
         [Header("옵션")]
         [SerializeField] private bool useUnscaledTime = false; // true면 타임스케일 0에서도 감소.
         
+        [Header("스파이크 방지")]
+        [Tooltip("씬 시작 직후 첫 프레임의 비정상 dt로 과도 소모되는 것을 방지")]
+        [SerializeField] private bool ignoreFirstFrame = true;
+        
+        [Tooltip("프레임 dt 상한 (초). 0.05= 최대 50ms(20fps)로 제한")]
+        [Min(0f)] [SerializeField] private float maxDeltaTime = 0.05f;
+        
         private ITimeResource _time;
+        private bool _skipOnce;
 
         private void Awake()
         {
@@ -45,14 +53,28 @@ namespace Hourbound.Presentation.Time
             if (_time == null) return;
             if (drainPerSecond <= 0) return;
             
+            // 첫 프레임 dt 스파이크 방지
+            if (_skipOnce)
+            {
+                _skipOnce = false;
+                return;
+            }
+            
             float dt = useUnscaledTime ? UnityEngine.Time.unscaledDeltaTime : UnityEngine.Time.deltaTime;
             if (dt <= 0f) return;
             
+            // dt 스파이크 방지(포커스 이동/씬 로드/에디터 등)
+            if (maxDeltaTime > 0f && dt > maxDeltaTime)
+                dt = maxDeltaTime;
+            
             float amount = drainPerSecond * dt;
             
-            // 자동 감소는 실패하는 경우(시간이 이미 0인 경우) 조용히 넘어가도 됨
-            _time.TrySpend(amount, new TimeSpendContext("자동감소", "초당감소"));
+            // 소모 시도
+            bool ok = _time.TrySpend(amount, new TimeSpendContext(TimeReason.AutoDrain, TimeSource.PerSecond));
+
+            // 소모 실패시 0이 아니면 0으로 스냅
+            if (!ok && _time.Current > 0f)
+                _time.SetCurrent(0f, new TimeSetContext(TimeReason.AutoDrain));
         }
     }
 }
-

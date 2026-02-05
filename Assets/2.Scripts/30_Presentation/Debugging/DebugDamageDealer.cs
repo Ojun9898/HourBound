@@ -3,7 +3,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Hourbound.Presentation.Combat;
 
-namespace HourBound.Presentation.Debugging
+namespace Hourbound.Presentation.Debugging
 {
     // 디버그용 데미지 입력 컨트롤러
     // D 키를 누르면 대상 적에게 데미지를 준다.
