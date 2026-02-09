@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using Hourbound.Presentation.Feedback.Telegraph;
 
@@ -9,79 +8,44 @@ namespace Hourbound.Presentation.Combat.Hitbox
     {
         [Header("Hitbox")]
         [SerializeField] private MeleeHitBox hitbox;
-        
-        [Header("Telegraph")]
-        [SerializeField] private EnemyAttackTelegraph telegraph;
 
-        [Header("돌진 거리")]
+        [Header("Telegraph (Request-driven)")]
+        [SerializeField] private EnemyAttackTelegraph telegraph;
+        [Min(0.01f)] [SerializeField] private float telegraphShowFor = 0.22f;
+
+        [Header("Lunge (MovePosition)")]
         [SerializeField] private Rigidbody rb;
         [Min(0f)] [SerializeField] private float lungeSpeed = 6f;
-        
-        [Header("공격 후 복귀여부")]
-        [Tooltip("공격 종료 시 제자리로 복귀에 대한 것.")]
+        [Min(0.01f)] [SerializeField] private float maxLungeWindow = 0.25f;
+
+        [Header("Return")]
         [SerializeField] private bool returnToStartOnEnd = true;
-        
-        [Tooltip("복귀 보간 시간. 0이면 즉시 복귀")]
         [Min(0f)] [SerializeField] private float returnDuration = 0.08f;
-        
-        [Tooltip("복귀 중에는 수평 이동을 강제로 0으로 유지")]
         [SerializeField] private bool zeroHorizontalVelocityWhileReturning = true;
-        
-        [Header("Failsafe")]
-        [Tooltip("End 이벤트가 안 와도 이 시간 후 강제로 End처리(텔레그래프/돌진/히트박스 정리)")]
-        [Min(0.05f)] [SerializeField] private float maxLungeWindow = 0.35f;
-        
-        [SerializeField] private float telegraphDebounce = 0.05f;
-        
+
         [Header("Debug")]
         [SerializeField] private bool log;
-        
-        private bool _telegraphOn;
-        private float _lastTelegraphBeginAt;
+
+        private int _lastTelegraphBeginFrame = -999;
         private bool _lunging;
+        private float _lungeEndAt;
         private Vector3 _startPos;
         private Coroutine _returnCo;
-        private Coroutine _failsafeCo;
-        
+
         private void Reset()
         {
             if (hitbox == null) hitbox = GetComponentInChildren<MeleeHitBox>(true);
-            if (rb == null) rb = GetComponentInParent<Rigidbody>();
             if (telegraph == null) telegraph = GetComponentInChildren<EnemyAttackTelegraph>(true);
+            if (rb == null) rb = GetComponentInParent<Rigidbody>();
         }
 
         private void OnDisable()
         {
-            // 텔레그래프가 켜져있던 플래그/상태 정리
-            _telegraphOn = false;
-            if (telegraph != null) telegraph.Hide();
-            
-            // 히트박스가 켜져있으면 무조건 끄기
-            if (hitbox != null) hitbox.Deactivate();
-            
-            // 돌진 상태 종료
             _lunging = false;
-            
-            // 코루틴 정리
-            if (_returnCo != null)
-            {
-                StopCoroutine(_returnCo);
-                _returnCo = null;
-            }
+            if (_returnCo != null) { StopCoroutine(_returnCo); _returnCo = null; }
 
-            if (_failsafeCo != null)
-            {
-                StopCoroutine(_failsafeCo);
-                _failsafeCo = null;
-            }
-            
-            // 수평 속도 정리
-            if (rb != null)
-            {
-                Vector3 v = rb.linearVelocity;
-                v.x = 0f; v.z = 0f;
-                rb.linearVelocity = v;
-            }
+            hitbox?.Deactivate();
+            telegraph?.RequestHide();
         }
 
         private void FixedUpdate()
@@ -89,112 +53,97 @@ namespace Hourbound.Presentation.Combat.Hitbox
             if (!_lunging) return;
             if (rb == null) return;
 
+            if (UnityEngine.Time.time >= _lungeEndAt)
+            {
+                EndLunge();
+                return;
+            }
+
             Vector3 f = transform.root.forward;
             f.y = 0f;
             if (f.sqrMagnitude < 0.0001f) return;
             f.Normalize();
 
-            Vector3 delta = f * (lungeSpeed * UnityEngine.Time.fixedDeltaTime);
-            rb.MovePosition(rb.position + delta);
+            Vector3 step = f * (lungeSpeed * UnityEngine.Time.fixedDeltaTime);
+            rb.MovePosition(rb.position + step);
         }
 
-        
+        // ---------------- Animation Events ----------------
 
-        // Animation Event 함수는 Public 권장
+        public void AE_TelegraphBegin()
+        {
+            if (UnityEngine.Time.frameCount == _lastTelegraphBeginFrame) return;
+            _lastTelegraphBeginFrame = UnityEngine.Time.frameCount;
+            
+            // "정확한 계획 거리": FixedUpdate 스텝 수 기준
+            float dt = UnityEngine.Time.fixedDeltaTime;
+            int steps = Mathf.CeilToInt(maxLungeWindow / dt);
+            float plannedLungeDistance = steps * lungeSpeed * dt;
+
+            // ✅ ShowForRealtime/Invoke/코루틴을 쓰지 말고 "요청"만 한다.
+            telegraph?.RequestShowForRealtime(telegraphShowFor, plannedLungeDistance);
+
+            if (log) Debug.Log($"[AnimEvents] TelegraphBegin steps={steps} plannedDist={plannedLungeDistance:F3}", this);
+        }
+
         public void AE_AttackHitboxBegin()
         {
-            if (_lunging) return;
-            
-            if (hitbox != null) hitbox.Activate();
-            
+            telegraph?.RequestHide();
+            hitbox?.Activate();
+
             if (rb != null)
-                _startPos = rb.position;
-            
-            // 복귀 코루틴이 돌고 있었으면 끊고 다시 시작 위치 갱신
-            if (_returnCo != null)
             {
-                StopCoroutine(_returnCo);
-                _returnCo = null;
+                _startPos = rb.position;
+                _lungeEndAt = UnityEngine.Time.time + maxLungeWindow;
+
+                if (_returnCo != null) { StopCoroutine(_returnCo); _returnCo = null; }
+                _lunging = true;
             }
-            
-            _lunging = true;
-            
-            if (log)
-                Debug.Log("[AnimEvent] HitboxBegin + Lunge", this);
-            
-            if (_failsafeCo != null) StopCoroutine(_failsafeCo);
-            _failsafeCo = StartCoroutine(CoFailsafeEnd());
+
+            if (log) Debug.Log("[AnimEvents] HitboxBegin + LungeStart", this);
         }
 
         public void AE_AttackHitboxEnd()
         {
+            hitbox?.Deactivate();
+            telegraph?.RequestHide();
+
+            EndLunge();
+
+            if (log) Debug.Log("[AnimEvents] HitboxEnd + LungeEnd(+Return)", this);
+        }
+
+        // ---------------- Internals ----------------
+
+        private void EndLunge()
+        {
             if (!_lunging) return;
-
-            if (_failsafeCo != null)
-            {
-                StopCoroutine(_failsafeCo);
-                _failsafeCo = null;
-            }
-            
-            // 텔레그래프가 따로 End 이벤트를 못 받는 상황 대비 보험
-            if (telegraph != null) telegraph.Hide();
-            
-            if (hitbox != null) hitbox.Deactivate();
-            
             _lunging = false;
-            
-            if (rb == null) return;
 
-            Vector3 v = rb.linearVelocity;
-            v.x = 0f; v.z  = 0f;
-            rb.linearVelocity = v;
+            if (rb == null) return;
 
             if (returnToStartOnEnd)
             {
                 if (_returnCo != null) StopCoroutine(_returnCo);
                 _returnCo = StartCoroutine(CoReturnToStart());
             }
-            
-            if (log)
-                Debug.Log("[AnimEvents] HitboxEnd + Return", this);
-        }
-
-        public void AE_TelegraphBegin()
-        {
-            float now = UnityEngine.Time.time;
-            
-            // 너무 빨리 재진입 하면 무시
-            if (now - _lastTelegraphBeginAt < telegraphDebounce)
-                return;
-            
-            _lastTelegraphBeginAt = now;
-            
-            // 이미 켜져 있으면 무시
-            if (_telegraphOn) return;
-            _telegraphOn = true;
-            
-            telegraph?.Show();
-        }
-
-        public void AE_TelegraphEnd()
-        {
-            // 이미 꺼져 있으면 무시
-            if (!_telegraphOn) return;
-            _telegraphOn = false;
-            
-            telegraph?.Hide();
         }
 
         private IEnumerator CoReturnToStart()
         {
-            //즉시 스냅
+            if (rb == null)
+            {
+                _returnCo = null;
+                yield break;
+            }
+
             if (returnDuration <= 0f)
             {
                 rb.MovePosition(_startPos);
                 _returnCo = null;
                 yield break;
             }
-            
+
             float t = 0f;
             Vector3 from = rb.position;
             Vector3 to = _startPos;
@@ -205,55 +154,19 @@ namespace Hourbound.Presentation.Combat.Hitbox
 
                 if (zeroHorizontalVelocityWhileReturning)
                 {
-                    Vector3 v = rb.linearVelocity;
+                    var v = rb.linearVelocity;
                     v.x = 0f; v.z = 0f;
                     rb.linearVelocity = v;
                 }
-                
+
                 float a = Mathf.Clamp01(t / returnDuration);
-                Vector3 p = Vector3.Lerp(from, to, a);
-                rb.MovePosition(p);
-                
+                rb.MovePosition(Vector3.Lerp(from, to, a));
+
                 yield return new WaitForFixedUpdate();
             }
-            
+
             rb.MovePosition(to);
             _returnCo = null;
-        }
-
-        private IEnumerator CoFailsafeEnd()
-        {
-            yield return new WaitForSeconds(maxLungeWindow);
-            
-            if (!_lunging) { _failsafeCo = null; yield break; }
-            
-            if (log) Debug.Log("[FailSafe] Force End", this);
-            
-            // End 이벤트가 안와도 동일하게 정리
-            ForceEnd();
-            _failsafeCo = null;
-        }
-
-        private void ForceEnd()
-        {
-            if (hitbox != null) hitbox.Deactivate();
-            
-            _lunging = false;
-
-            if (rb != null)
-            {
-                var v = rb.linearVelocity;
-                v.x = 0f; v.z = 0f;
-                rb.linearVelocity = v;
-
-                if (returnToStartOnEnd)
-                {
-                    if (_returnCo != null) StopCoroutine(_returnCo);
-                    _returnCo = StartCoroutine(CoReturnToStart());
-                }
-            }
-            
-            telegraph?.Hide();
         }
     }
 }

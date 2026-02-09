@@ -36,6 +36,8 @@ namespace Hourbound.Presentation.Enemy.Combat
         private float _lockedUntil;
         
         public bool IsLocked => UnityEngine.Time.timeSinceLevelLoad < _lockedUntil;
+        
+        private static readonly int AttackTagHash = Animator.StringToHash("Attack");
 
         private void Reset()
         {
@@ -59,6 +61,12 @@ namespace Hourbound.Presentation.Enemy.Combat
             if (target == null) return;
             
             float now = UnityEngine.Time.timeSinceLevelLoad;
+
+            if (IsInAttackState())
+            {
+                if (rotateToTarget) RotateTowards(target.position);
+                return;
+            }
             
             // 공격 중 잠금
             if (now < _lockedUntil)
@@ -87,6 +95,12 @@ namespace Hourbound.Presentation.Enemy.Combat
             
             if (log)
                 Debug.Log($"[EnemyBrain] Attack! dist = {dist:F2}", this);
+        }
+
+        private bool IsInAttackState()
+        {
+            var s = animator.GetCurrentAnimatorStateInfo(0);
+            return s.tagHash == AttackTagHash;
         }
 
         private void RotateTowards(Vector3 worldPos)

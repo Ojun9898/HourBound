@@ -27,6 +27,9 @@ namespace Hourbound.Presentation.Player
         private Vector2 _moveInput;
         private Vector3 _planarVelocity; // xz 평면 속도
         
+        public float CurrentPlanarSpeed => _planarVelocity.magnitude;
+        public float MaxMoveSpeed => moveSpeed;
+        
         private void Awake()
         {
             _cc = GetComponent<CharacterController>();
